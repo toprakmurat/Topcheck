@@ -6,106 +6,158 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <memory>
 
-namespace Topcheck 
-{
 template<typename T>
-std::string toString(const T& value) 
-{
-	std::ostringstream oss;
-	oss << value;
-	return oss.str();
-}
-
-template<typename Func>
-class TestCase 
-{
-public:
-	TestCase(const std::string& name, Func testFunc)
-		: m_Name(name), m_TestFunc(testFunc) {}
-
-	void Run() const 
-	{
-		if constexpr (std::is_void_v<std::invoke_result_t<Func>>) 
-		{
-			m_TestFunc();
-		} 
-		else 
-		{
-			auto result = m_TestFunc();
-			std::cout << "Test returned: "<< result << std::endl;
-		}
-	}
-
-	const std::string& GetName() const { return m_Name; }
-
-private:
-	std::string m_Name;
-	Func m_TestFunc;
+concept EqualityComparable = requires(T a, T b) {
+	{ a == b } -> std::convertible_to<bool>;
 };
 
-class TestFailure : public std::exception 
-{
-public:
-	TestFailure(const std::string& file, int line, const std::string& expr, const std::string& message) 
-		: m_File(file), m_Line(line), m_Expr(expr), m_Message(message) 
-	{ BuildMessage(); }
+template<typename T>
+concept FloatingPoint = std::is_floating_point_v<T>;
 
-	void PrintMessage() const {
-		std::cerr << m_Message << std::endl;
-	}
-
-	const char* what() noexcept override 
+namespace Topcheck
+{	
+	// Base class for test cases to enable polymorphism
+	class ITestCase 
 	{
-		return m_Message.c_str();
-	}
+	public:
+		virtual ~ITestCase() = default;
+		virtual void Run() const = 0;
+		virtual const std::string& GetName() const = 0;
+	};
 
-private:
-	void BuildMessage() {
-		std::ostringstream oss;
-		oss << "Test failed: " << m_Expr;
-		if (!m_Message.empty()) {
-			oss << "(" << m_Message << ")";
-		}
-		oss << "at" << m_File << ":" << m_Line;
-
-		m_Message = oss.str();
-	}
-
-	std::string m_File;
-	int m_Line;
-	std::string m_Expr;
-	std::string m_Message;
-};
-
-class TestRunner 
-{
-public:
-	void AddTest(const TestCase& testCase) 
+	template<typename Func>
+	class TestCase : public ITestCase
 	{
-		if (!testCase->GetName().empty()) {
-			m_TestCases.push_back(testCase);
-		}
-		// handle else
-	}
+	public:
+		TestCase(const std::string& name, Func testFunc)
+			: m_Name(name), m_TestFunc(testFunc)
+		{}
 
-	void Run() const
-	{
-		for (const auto& testCase : m_TestCases)
+		void Run() const override
 		{
-			try 
+			if constexpr (std::is_void_v<std::invoke_result_t<Func>>)
 			{
-				testCase.Run();
-			} 
-			catch (const std::exception& e)
+				m_TestFunc();
+			}
+			else 
 			{
-				throw TestFailure(__FILE__, __LINE__, testCase->GetName(), e.what());
+				auto result = m_TestFunc();
+				std::cout << "Test returned: " << result << std::endl;
 			}
 		}
-	}
-private:
-	std::vector<TestCase> m_TestCases;
-}
+
+		const std::string& GetName() const override { return m_Name; }
+	private:
+		std::string m_Name;
+		Func m_TestFunc;
+
+	};  // class TestCase 
+	
+	class TestRunner
+	{
+	public:
+		template<typename Func>
+		void AddTestCase(const std::string& name, Func testFunc)
+		{
+			m_TestCases.push_back(std::make_unique<TestCase<Func>>(name, testFunc));
+		}
+
+		void RunAll() const
+		{
+			for (const auto& testCase : m_TestCases)
+			{
+				std::cout << "Running test: " << testCase->GetName() << std::endl;
+				testCase->Run();
+			}
+		}
+
+	private:
+		std::vector<std::unique_ptr<ITestCase>> m_TestCases;
+	};  // class TestRunner
+	
+	
+	class Assertion 
+	{
+	public:
+		// Constructors
+		Assertion() = default;
+
+		Assertion(const std::string& file)
+			: m_File(file) {}
+		
+		Assertion(const std::string& file, int line)
+			: m_File(file), m_Line(line) {}
+
+		template<EqualityComparable T>
+		void AssertEqual(const T& expected, const T& actual)
+		{	
+			std::ostringstream oss;
+			oss << expected << "==" << actual;
+
+			if (!(expected == actual))
+				buildFailMessage(oss.str());
+			else
+				buildSuccessMessage(oss.str());
+		}
+
+		template<FloatingPoint T>
+		void AssertAlmostEqual(const T& expected, const T& actual, const T& epsilon) 
+		{
+			std::ostringstream oss;
+			oss << "Expected: " << expected << ", Actual: " << actual << ", Epsilon: " << epsilon;
+
+			if (std::fabs(expected - actual) >= epsilon)
+				buildFailMessage(oss.str());
+			else
+				buildSuccessMessage(oss.str());
+		}
+
+		void PrintResults() const 
+		{
+			for (const auto& message : m_Messages)
+			{
+				std::cout << message << std::endl;
+			}
+		}
+
+		bool HasFailures() const
+		{
+			return !m_FailMessages.empty();
+		}
+
+	private:
+		void buildFailMessage(const std::string& message) 
+		{
+			std::ostringstream oss;
+			oss << "Test Failed: ";
+			
+			if (!message.empty())
+				oss << message;
+			
+			if (!m_File.empty() && m_Line != 0)
+				oss << " at " << m_File << ":" << m_Line;
+
+			m_Messages.push_back(oss.str());
+			m_FailMessages.push_back(oss.str());
+		}
+
+		void buildSuccessMessage(const std::string& message) 
+		{
+			std::ostringstream oss;
+			oss << "Test Passed: ";
+			if (!message.empty()) 
+				oss << message;
+
+			m_Messages.push_back(oss.str());
+		}
+
+		std::string m_File;
+		int m_Line = 0;
+		std::vector<std::string> m_Messages;
+		std::vector<std::string> m_FailMessages;
+	};  // class Assertion
 
 }  // namespace Topcheck
 #endif  // TOPCHECK_HPP
