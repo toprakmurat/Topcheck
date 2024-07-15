@@ -1,7 +1,7 @@
 #include <Topcheck/Topcheck.hpp>
 
 using namespace Topcheck;
-Assertion assertion(__FILE__);
+Assertion assertion;
 
 void testAddition() {
     int sum = 2 + 2;
@@ -20,7 +20,7 @@ void testStringEquality() {
 
 void testFloatingPointEquality() {
     double value = 0.1 + 0.2;
-    assertion.AssertAlmostEqual(0.3, value, 1e-9);
+    assertion.AssertAlmostEqual(0.4, value, 1e-9);
 }
 
 int main() {
@@ -32,8 +32,6 @@ int main() {
     runner.AddTestCase("testFloatingPointEquality", testFloatingPointEquality);
 
     runner.RunAll();
-
-    assertion.PrintResults();
 
     return 0;
 }

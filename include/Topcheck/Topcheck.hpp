@@ -1,5 +1,6 @@
 #ifndef TOPCHECK_HPP
 #define TOPCHECK_HPP
+#define _CRT_SECURE_NO_WARNINGS
 
 #include <chrono>
 #include <ctime>
@@ -10,7 +11,8 @@
 #include <string>
 #include <vector>
 
-namespace Messaging {
+namespace Messaging 
+{
 	enum class MessageType {
 		UNKNOWN = -1,
 		FAIL = 0,
@@ -25,11 +27,11 @@ namespace Messaging {
 		MessageType type_;
 		std::time_t timestamp_;
 
-		Message() : content_(""), type_(MessageType::UNKNOWN), timestamp_(std::time(nullptr)) 
+		Message() : content_(""), type_(MessageType::UNKNOWN), timestamp_(std::time(nullptr))
 		{}
-		
+
 		Message(const std::string& content, MessageType type)
-			: content_(content), type_(type), timestamp_(std::time(nullptr)) 
+			: content_(content), type_(type), timestamp_(std::time(nullptr))
 		{}
 
 		Message(const Message& other)
@@ -80,13 +82,13 @@ namespace Messaging {
 		}
 
 		static std::string messageTypeToString(MessageType type) {
-			switch (type) 
+			switch (type)
 			{
-				case MessageType::FAIL: return "FAIL";
-				case MessageType::SUCCESS: return "SUCCESS";
-				case MessageType::WARNING: return "WARNING";
-				case MessageType::INFO:	 return "INFO";
-				default: return "UNKNOWN";
+			case MessageType::FAIL: return "FAIL";
+			case MessageType::SUCCESS: return "SUCCESS";
+			case MessageType::WARNING: return "WARNING";
+			case MessageType::INFO:	 return "INFO";
+			default: return "UNKNOWN";
 			}
 		}
 
@@ -117,7 +119,6 @@ namespace Messaging {
 
 }  // namespace Messaging
 
-
 template<typename T>
 concept EqualityComparable = requires(T a, T b) {
 	{ a == b } -> std::convertible_to<bool>;
@@ -127,14 +128,17 @@ template<typename T>
 concept FloatingPoint = std::is_floating_point_v<T>;
 
 namespace Topcheck
-{	
+{
+	using namespace Messaging;
+
 	// Base class for test cases to enable polymorphism
-	class ITestCase 
+	class ITestCase
 	{
 	public:
 		virtual ~ITestCase() = default;
-		virtual void Run() const = 0;
+		virtual void Run() = 0;
 		virtual const std::string& GetName() const = 0;
+		virtual const Message& GetMessage() const = 0;
 	};
 
 	template<typename Func>
@@ -145,8 +149,8 @@ namespace Topcheck
 			: m_Name(name), m_TestFunc(testFunc)
 		{}
 
-		void Run() const override
-		{	
+		void Run() override
+		{
 			std::ostringstream oss;
 
 			try {
@@ -157,39 +161,43 @@ namespace Topcheck
 				else
 				{
 					auto result = m_TestFunc();
-					std::cout << "Test returned: " << result << std::endl;
+					oss << "Test returned: " << result << std::endl;
+					
+					SetMessage(oss.str(), MessageType::INFO);
 				}
 			}
 
 			catch (const std::exception& e) {
 				oss << "Test " << m_Name << " failed and threw an exception: " << e.what();
-				
-				m_Message = oss.str();
+
+				SetMessage(oss.str(), MessageType::FAIL);
 			}
 			catch (...) {
 				oss << "Test " << m_Name << " failed and threw an unknown exception";
 
-				m_Message = oss.str();
+				SetMessage(oss.str(), MessageType::UNKNOWN);
 			}
-			// TODO: Exception handling
 		}
 
 		const std::string& GetName() const override { return m_Name; }
+		const Message& GetMessage() const override { return m_Message; }
+
+		void SetMessage(const std::string& content, MessageType type) 
+		{
+			m_Message.content_ = content;
+			m_Message.type_ = type;
+		}
 	private:
-		std::string m_Message;
 		std::string m_Name;
 		Func m_TestFunc;
 
+		Message m_Message;
 	};  // class TestCase 
-	
+
 	class TestRunner
 	{
 	public:
 		TestRunner() = default;
-
-		TestRunner(const std::string& file, int line)
-			: m_File(file), m_Line(line) 
-		{}
 
 		template<typename Func>
 		void AddTestCase(const std::string& name, Func testFunc)
@@ -203,19 +211,17 @@ namespace Topcheck
 			{
 				std::cout << "Running test: " << testCase->GetName() << std::endl;
 				testCase->Run();  // Exceptions are handled inside TestCase.Run() functions
+				Message temp = testCase->GetMessage();
+				// TODO: LOGGING SYSTEM
+				std::cout << temp.content_ << std::endl;
 			}
 		}
-
 	private:
-		std::string m_File;
-		int m_Line;
-		std::string m_Message;
-
 		std::vector<std::unique_ptr<ITestCase>> m_TestCases;
 	};  // class TestRunner
-	
-	
-	class Assertion 
+
+
+	class Assertion
 	{
 	public:
 		// Constructors
@@ -223,29 +229,23 @@ namespace Topcheck
 
 		template<EqualityComparable T>
 		void AssertEqual(const T& expected, const T& actual)
-		{	
-			if (!expected == actual) {
-				// Fail
-			}
-			else {
-				// Success
+		{
+			if (expected != actual) {
+				std::cout << "Assertion failed." << std::endl;
 			}
 		}
 
 		template<FloatingPoint T>
-		void AssertAlmostEqual(const T& expected, const T& actual, const T& epsilon) 
+		void AssertAlmostEqual(const T& expected, const T& actual, const T& epsilon)
 		{
 			if (std::fabs(expected - actual) >= epsilon) {
-				// Fail
-			}
-			else {
-				// Success
+				std::cout << "Assertion failed." << std::endl;
 			}
 		}
 
 	private:
 		// TODO: Private members
-		
+
 	};  // class Assertion
 
 }  // namespace Topcheck
