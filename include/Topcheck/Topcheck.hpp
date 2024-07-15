@@ -1,12 +1,121 @@
 #ifndef TOPCHECK_HPP
 #define TOPCHECK_HPP
 
-#include <iostream>
+#include <chrono>
+#include <ctime>
 #include <functional>
-#include <string>
-#include <sstream>
-#include <vector>
+#include <iostream>
 #include <memory>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace Messaging {
+	enum class MessageType {
+		UNKNOWN = -1,
+		FAIL = 0,
+		SUCCESS = 1,
+		WARNING = 2,
+		INFO = 3
+	};
+
+	struct Message {
+	public:
+		std::string content_;
+		MessageType type_;
+		std::time_t timestamp_;
+
+		Message() : content_(""), type_(MessageType::UNKNOWN), timestamp_(std::time(nullptr)) 
+		{}
+		
+		Message(const std::string& content, MessageType type)
+			: content_(content), type_(type), timestamp_(std::time(nullptr)) 
+		{}
+
+		Message(const Message& other)
+			: content_(other.content_), type_(other.type_), timestamp_(other.timestamp_)
+		{}
+
+		Message(Message&& other) noexcept
+			: content_(std::move(other.content_)), type_(other.type_), timestamp_(other.timestamp_)
+		{
+			other.type_ = MessageType::UNKNOWN;
+			other.timestamp_ = 0;
+		}
+
+		Message& operator=(const Message& other) {
+			if (this != &other) {
+				content_ = other.content_;
+				type_ = other.type_;
+				timestamp_ = other.timestamp_;
+			}
+			return *this;
+		}
+
+		Message& operator=(Message&& other) noexcept {
+			if (this != &other) {
+				content_ = std::move(other.content_);
+				type_ = other.type_;
+				timestamp_ = other.timestamp_;
+
+				other.type_ = MessageType::UNKNOWN;
+				other.timestamp_ = 0;
+			}
+			return *this;
+		}
+
+		std::string getFormattedTimestamp() const {
+			char buffer[80];
+			struct tm* timeinfo = localtime(&timestamp_);
+			strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeinfo);
+			return std::string(buffer);
+		}
+
+		std::string format() const {
+			std::stringstream ss;
+			ss << "[" << getFormattedTimestamp() << "] ";
+			ss << "[" << messageTypeToString(type_) << "] ";
+			ss << content_;
+			return ss.str();
+		}
+
+		static std::string messageTypeToString(MessageType type) {
+			switch (type) 
+			{
+				case MessageType::FAIL: return "FAIL";
+				case MessageType::SUCCESS: return "SUCCESS";
+				case MessageType::WARNING: return "WARNING";
+				case MessageType::INFO:	 return "INFO";
+				default: return "UNKNOWN";
+			}
+		}
+
+		std::string serialize() const {
+			std::stringstream ss;
+			ss << content_ << "|" << static_cast<int>(type_) << "|" << timestamp_;
+			return ss.str();
+		}
+
+		static Message deserialize(const std::string& data) {
+			std::stringstream ss(data);
+			std::string content;
+			int type;
+			std::time_t timestamp;
+			std::getline(ss, content, '|');
+			ss >> type;
+			ss.ignore(1);
+			ss >> timestamp;
+
+			return Message(content, static_cast<MessageType>(type), timestamp);
+		}
+	private:
+		// Deserialization constructor
+		Message(const std::string& content, MessageType type, std::time_t timestamp)
+			: content_(content), type_(type), timestamp_(timestamp)
+		{}
+	};
+
+}  // namespace Messaging
 
 template<typename T>
 concept EqualityComparable = requires(T a, T b) {
